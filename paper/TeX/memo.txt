@@ -1,0 +1,150 @@
+matplotlib inline
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.integrate import odeint
+
+olderr=0.0
+oldt=0.0
+oldtt=0.0
+oldu=0.0
+esum = 0.0
+T=[]
+U=[]
+
+
+def control(output, ref, t):
+    #制御
+    
+    global olderr,oldt,esum
+
+    Kp = 5 #比例ゲイン
+    Kd = 1. #微分ゲイン
+    Ki = 0. #積分ゲイン
+    
+    u0 = 5.0 #ホバリングに必要な電圧[V]
+    
+    err = ref - output
+    #diff error
+    if t-oldt==0.0:
+        derr =0.0
+    else:
+        derr= (err - olderr)/(t-oldt)
+    #print(err,olderr,t,oldt, derr)    
+    olderr=err
+    oldt=t
+    
+    #integrate error
+    esum+=err
+    
+    up = Kp * err
+    ud = Kd * derr
+    ui = Ki * esum
+    
+    u = up + ud + ui + u0
+    
+    if u<0.0:
+        u=0.0
+    elif u>11.1:
+        u=11.1
+    #print(u)
+    
+    T.append(t)
+    U.append(u)
+    return u
+
+def sensor(height):
+    return height;
+
+def motor(omega,u):
+    
+    if(u<0.0):
+        u=0.0
+    
+    #モータゲイン
+    Kv=272.3
+    
+    #モータ時定数
+    tau =0.05
+    
+    omegadot = (-omega + Kv*u)/tau
+    
+    if (omega<0.0 or omega==0.0):        
+        if omegadot<0.0:
+            omegadot = 0.0
+    #print(u,omega,omegadot)
+    return omegadot
+
+def propeller(omega):
+    Ct = 8.59e-7 #推力係数
+    Thrust = 4.0 * Ct * omega**2
+    #print(Thrust)
+    return Thrust
+
+def drone(x, t, ref, tmp):
+    global oldtt,oldu
+
+    mass = 0.65 #マルチコプタの重量kg
+    g = 9.81
+    #print(t)
+    v=x[0]
+    height=x[1]
+    omega=x[2]
+
+
+    vdot=(propeller(omega) - mass * g)/mass
+    if(height<0.0 or height==0.0):
+        if vdot<0.0:
+            vdot=0.0
+        
+    heightdot = v
+    
+    if t-oldtt>0.01:
+        u=control(sensor(height),ref,t)
+        oldtt=t
+        oldu=u
+        #print(t,u)
+    else:
+        u=oldu
+        
+    omegadot = motor(omega, u)
+    
+    return [vdot, heightdot, omegadot]
+
+if __name__=='__main__':
+    ref=1.5
+    
+    #シミュレーション開始時のドローンの初期値
+    v0=0.0 #初期速度
+    height0=ref #初期高度
+    omega0=1362 #初期モータ角速度
+    
+    x0=[v0 , height0, omega0]
+    
+    t=np.arange(0.0, 10.0, 0.01)
+    x = odeint(drone, x0, t, args=(ref,0),hmax=0.001)
+
+    plt.figure(figsize=(10,5))
+    plt.rcParams['font.size']=14
+    plt.plot(t,x[:,1],label='Altutude')
+    #plt.title('Altitude')
+    plt.xlabel('time[s]')
+    plt.ylabel('Altitude[m]')
+    plt.grid()
+    plt.show()
+    plt.plot(t,x[:,2],label='Omega')
+    plt.title('Omega')
+    plt.grid()
+    plt.show()
+    plt.plot(t,x[:,0],label='Velocity')
+    plt.title('Velocity')
+    plt.grid()
+    plt.show()    
+    plt.plot(T,U,label='Control')
+    plt.title('Control')
+    plt.grid()
+    plt.show()
+    plt.plot(t,x[:,0]/x[:,2],label='V/omega')
+    plt.title('V/omega')
+    plt.grid()
+    plt.show()
+    
